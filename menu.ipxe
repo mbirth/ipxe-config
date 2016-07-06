@@ -1,0 +1,197 @@
+#!ipxe
+
+# Variables are specified in boot.ipxe.cfg
+
+# Some menu defaults
+set menu-timeout 5000
+set submenu-timeout ${menu-timeout}
+isset ${menu-default} || set menu-default exit
+set esc:hex 1b
+set bold ${esc:string}[1m
+set orange ${esc:string}[33;0m
+set yellow ${esc:string}[33;1m
+set cyan ${esc:string}[36;1m
+set resetfg ${esc:string}[39m
+set resetbg ${esc:string}[49m
+set resetbold ${esc:string}[22m
+set reset ${esc:string}[0m
+
+# Figure out if client is 64-bit capable
+cpuid --ext 29 && set arch x86_64 || set arch x86
+cpuid --ext 29 && set archb 64 || set archb 32
+cpuid --ext 29 && set archl x86_64 || set archl i386
+
+# Set graphics mode and configure colours
+console --x 800 --y 600 --picture riddick.png
+colour --basic 3 --rgb 0xffaa44 3
+cpair --foreground 0 --background 3 2
+cpair --foreground 3 3
+set chotkey ${bold}
+set cname ${orange}
+
+###################### MAIN MENU ####################################
+
+:start
+menu iPXE boot menu for ${manufacturer} ${product} (${archb}bit)
+item --gap                RECOVERY / HDD-TOOLS
+item --key s srcd         ${chotkey}S${resetbold}ystem Rescue CD
+item srcda                System Rescue CD (alt. Kernel)
+item --key d dfsee        ${chotkey}D${resetbold}FSee
+item --key l clonez       C${chotkey}l${resetbold}onezilla
+item --key g gparted      ${chotkey}G${resetbold}Parted Live
+item g4u                  g4u (ghosting for unix)
+item g4l                  G4L - Ghost for Linux (kernel 4x2.8)
+item
+item --gap                ANTIVIRUS
+item avg                  AVG Rescue CD
+item --key b bitdef       ${chotkey}B${resetbold}itDefender Rescue CD
+item --key f fsecure      ${chotkey}F${resetbold}-Secure Rescue CD
+item
+item --gap                MISCELLANEOUS
+item --key h hdt          ${chotkey}H${resetbold}ardware Detection Tool
+item mt6                  Memtest86 V6
+item mt86p                Memtest86+ V5
+item
+item --gap                ADVANCED OPTIONS
+item --key c config       ${chotkey}C${resetbold}onfigure settings
+item shell                Drop to iPXE shell
+item reboot               Reboot computer
+item
+item --key x exit         E${chotkey}x${resetbold}it iPXE and continue BIOS boot
+choose --timeout ${menu-timeout} --default ${menu-default} selected || goto cancel
+set menu-timeout 0
+goto ${selected}
+
+:cancel
+echo You cancelled the menu, dropping you to a shell
+
+:shell
+echo Type 'exit' to get the back to the menu
+shell
+set menu-timeout 0
+set submenu-timeout 0
+goto start
+
+:failed
+echo Booting failed, dropping to shell
+goto shell
+
+:reboot
+reboot
+
+:exit
+exit
+
+:config
+config
+goto start
+
+:back
+set submenu-timeout 0
+clear submenu-default
+goto start
+
+############ MAIN MENU ITEMS ############
+
+:srcd
+echo Booting ${cname}SystemRescueCD${reset} (${archb})
+set base-url http://diskstation:80/ipxe/sysresccd/
+kernel ${base-url}isolinux/rescue${archb}
+initrd ${base-url}isolinux/initram.igz
+imgargs rescue${archb} setkmap=de dodhcp netboot=${base-url}sysrcd.dat
+boot || goto failed
+goto start
+
+:srcda
+echo Booting ${cname}SystemRescueCD with alt. Kernel${reset} (${archb})
+set base-url http://diskstation:80/ipxe/sysresccd/
+kernel ${base-url}isolinux/altker${archb}
+initrd ${base-url}isolinux/initram.igz
+imgargs altker${archb} setkmap=de dodhcp netboot=${base-url}sysrcd.dat
+boot || goto failed
+goto start
+
+:dfsee
+echo Booting ${cname}DFSee${reset}
+kernel ${boot-url}memdisk iso raw
+initrd ${boot-url}dfsee/dfsee.iso
+boot || goto failed
+#sanboot --no-describe --drive 0x00 ${sanboot-url}dfsee/dfsee.iso
+goto start
+
+:hdt
+# http://hdt-project.org/
+echo Booting ${cname}Hardware Detection Tool${reset}
+sanboot --no-describe --drive 0x00 ${sanboot-url}hdt/hdt.img || goto failed
+goto start
+
+:mt6
+echo Booting ${cname}Memtest86 V6${reset}
+kernel ${boot-url}memdisk
+initrd ${boot-url}memtest86-6/memtest86-usb.img
+boot || goto failed
+#sanboot --no-describe --drive 0x00 ${sanboot-url}memtest86-6/memtest86-usb.img
+goto start
+
+:mt86p
+echo Booting ${cname}Memtest86+ V5${reset}
+boot ${boot-url}memtest86+/memtest86+.bin || goto failed
+goto start
+
+:fsecure
+echo Booting ${cname}F-Secure Rescue CD${reset}
+set base-url ${boot-url}fsecure/
+kernel ${base-url}linux ramdisk_size=100000 lang=en vt.default_utf8=0 apm=power-off vga=normal nomce loglevel=1 nolapic_timer nosound console=tty10 video=noblank
+initrd ${base-url}minirt.gz
+boot || goto failed
+goto start
+
+:clonez
+echo Booting ${cname}Clonezilla${reset} (${arch})
+set base-url ${boot-url}clonezilla/${arch}/
+kernel ${base-url}vmlinuz boot=live union=overlay username=user config components noswap edd=on nomodeset nodmraid noeject locales= keyboard-layouts= ocs_live_run="ocs-live-general" ocs_live_extra_param="" ocs_live_batch=no vga=normal net.ifnames=0 nosplash i915.blacklist=yes radeonhd.blacklist=yes nouveau.blacklist=yes vmwgfx.enable_fbdev=1 fetch=${base-url}filesystem.squashfs
+initrd ${base-url}initrd.img
+boot || goto failed
+goto start
+
+:gparted
+echo Booting ${cname}GParted Live${reset} (${arch})
+set base-url ${boot-url}gparted/${arch}/
+kernel ${base-url}vmlinuz boot=live union=overlay username=user config components noswap noeject ip= net.ifnames=0 nosplash fetch=${base-url}filesystem.squashfs
+initrd ${base-url}initrd.img
+boot || goto failed
+goto start
+
+:g4u
+echo Booting ${cname}g4u - ghosting for unix${reset}
+set base-url ${boot-url}g4u/
+#kernel ${base-url}netbsd
+#initrd ${base-url}miniroot.kmod
+kernel ${boot-url}memdisk iso raw
+initrd ${base-url}g4u-2.5.iso
+boot || goto failed
+goto start
+
+:g4l
+echo Booting ${cname}G4L - Ghost for Linux${reset}
+set base-url ${boot-url}g4l/
+kernel ${base-url}bz4x2.8
+initrd ${base-url}ramdisk.lzma
+boot || goto failed
+goto start
+
+:bitdef
+echo Booting ${cname}BitDefender Rescue CD${reset} (${archl})
+set base-url ${boot-url}bitdefender/
+kernel ${base-url}kernel.${archl} root=/dev/nfs real_root=/dev/nfs nfsroot=172.16.254.1:/volume1/web/ipxe/bitdefender/cd/ ip=${ip} loop=/rescue/livecd.squashfs looptype=squashfs livecd.nfsif=${mac} initrd udev cdroot nosplash lang=en
+initrd ${base-url}initfs.${archl}
+boot || goto failed
+goto start
+
+:avg
+echo Booting ${cname}AVG Rescue CD${reset}
+set base-url ${boot-url}avg/
+kernel ${base-url}vmlinuz max_loop=255 init=linuxrc vga=ask reboot=bios
+initrd ${base-url}initrd.lzm
+boot || goto failed
+goto start

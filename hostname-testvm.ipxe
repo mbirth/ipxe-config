@@ -1,0 +1,6 @@
+#!ipxe
+echo
+echo Booting TestVM
+set menu-default menu-live
+set submenu-default ubuntu-live-1204-amd64
+chain --replace --autofree ${menu-url}

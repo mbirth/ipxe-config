@@ -1,0 +1,660 @@
+#!ipxe
+
+# Variables are specified in boot.ipxe.cfg
+
+# Some menu defaults
+set menu-timeout 5000
+set submenu-timeout ${menu-timeout}
+isset ${menu-default} || set menu-default exit
+
+# Figure out if client is 64-bit capable
+cpuid --ext 29 && set arch x64 || set arch x86
+cpuid --ext 29 && set archb 64 || set archb 32
+cpuid --ext 29 && set archl amd64 || set archl i386
+
+###################### MAIN MENU ####################################
+
+:start
+menu iPXE boot menu for ${initiator-iqn}
+item --key s srcd         Boot System Rescue CD from HTTP
+item srcda                Boot System Rescue CD from HTTP (alt. Kernel)
+item mt6                  Memtest86 V6
+item mt86p                Memtest86+ V5
+item --gap --             ------------------------- Operating systems ------------------------------
+item --key f freedos      Boot FreeDOS from iSCSI
+item --key m msdos        Boot MS-DOS from iSCSI
+item --key u ubuntu       Boot Ubuntu from iSCSI
+item --key v vmware       Boot VMware ESXi from iSCSI
+item --key w windows7     Boot Windows 7 from iSCSI
+item --key l menu-live    Live environments...
+item --gap --             ------------------------- Tools and utilities ----------------------------
+item --key p pxelinux     Load PXELinux menu
+item --key r menu-recovery Recovery tools...
+item --key d menu-diag    Diagnostics tools...
+item --key i menu-install Installers...
+item --gap --             ------------------------- Advanced options -------------------------------
+item --key c config       Configure settings
+item shell                Drop to iPXE shell
+item reboot               Reboot computer
+item
+item --key x exit         Exit iPXE and continue BIOS boot
+choose --timeout ${menu-timeout} --default ${menu-default} selected || goto cancel
+set menu-timeout 0
+goto ${selected}
+
+:srcd
+echo Booting SystemRescueCD for ${initiator-iqn}
+set base-url http://diskstation:80/ipxe/sysresccd
+kernel ${base-url}/isolinux/rescue${archb}
+initrd ${base-url}/isolinux/initram.igz
+imgargs rescue${archb} setkmap=de dodhcp netboot=${base-url}/sysrcd.dat
+boot || goto failed
+goto start
+
+:srcda
+echo Booting SystemRescueCD with alt. Kernel for ${initiator-iqn}
+set base-url http://diskstation:80/ipxe/sysresccd
+kernel ${base-url}/isolinux/altker${archb}
+initrd ${base-url}/isolinux/initram.igz
+imgargs altker${archb} setkmap=de dodhcp netboot=${base-url}/sysrcd.dat
+boot || goto failed
+goto start
+
+:mt6
+echo Booting Memtest86 V6
+kernel ${boot-url}memdisk
+initrd ${boot-url}memtest86-6/memtest86-usb.img
+boot || goto failed
+#sanboot --no-describe --drive 0x00 ${sanboot-url}memtest86-6/memtest86-usb.img
+goto start
+
+:mt86p
+echo Booting Memtest86+ V5
+boot ${boot-url}memtest86+/memtest86+.bin || goto failed
+goto start
+
+:hdt
+echo Booting Hardware Detection Tool
+sanboot --no-describe --drive 0x00 ${sanboot-url}hdt/hdt.img || goto failed
+goto start
+
+:cancel
+echo You cancelled the menu, dropping you to a shell
+
+:shell
+echo Type 'exit' to get the back to the menu
+shell
+set menu-timeout 0
+set submenu-timeout 0
+goto start
+
+:failed
+echo Booting failed, dropping to shell
+goto shell
+
+:reboot
+reboot
+
+:exit
+exit
+
+:config
+config
+goto start
+
+:back
+set submenu-timeout 0
+clear submenu-default
+goto start
+
+############ MAIN MENU ITEMS ############
+
+:freedos
+echo Booting FreeDOS from iSCSI for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.boot.freedos
+sanboot ${root-path} || goto failed
+goto start
+
+:msdos
+echo Booting MS-DOS from iSCSI for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.boot.msdos
+sanboot ${root-path} || goto failed
+goto start
+
+:ubuntu
+echo Booting Ubuntu from iSCSI for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.boot.ubuntu
+sanboot ${root-path} || goto failed
+goto start
+
+:vmware
+echo Booting VMware ESXi from iSCSI for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.boot.vmware
+sanboot ${root-path} || goto failed
+goto start
+
+:windows7
+echo Booting Windows 7 from iSCSI for ${initiator-iqn}
+# Force gateway to be the iSCSI target server (kludge for stupid window behavior)
+set netX/gateway ${iscsi-server}
+set root-path ${base-iscsi}:${hostname}.boot.windows7
+sanboot ${root-path} || goto failed
+goto start
+
+:pxelinux
+set 210:string tftp://${next-server}/
+chain ${210:string}pxelinux.0 || goto failed
+goto start
+
+###################### RECOVERY MENU ################################
+
+:menu-recovery
+menu Recovery tools
+item sysrcd          SystemRescueCD ${sysrcd-version}
+item spinrite        SpinRite ${spinrite-version}
+item spinrite-msdos  SpinRite ${spinrite-version} (using MS-DOS 6.22)
+item macrium-winpe Macrium Reflect ${macrium-version} Rescue CD (WinPE 4.0 ${arch})
+item macrium-winpe-sanboot   Macrium Reflect ${macrium-version} Rescue CD (WinPE 4.0 ${arch} with sanboot)
+item macrium-linux   Macrium Reflect ${macrium-version} Rescue CD (Linux ${arch})
+item macrium-linux-sanboot   Macrium Reflect ${macrium-version} Rescue CD (Linux ${arch} with sanboot)
+item firefly         Firefly IllumOS recovery environment ${firefly-version}
+item freedos-direct  FreeDOS 1.1 (directly using iPXE)
+item
+item --key 0x08 back Back to top menu...
+iseq ${menu-default} menu-recovery && isset ${submenu-default} && goto menu-recovery-timed ||
+choose selected && goto ${selected} || goto start
+:menu-recovery-timed
+choose --timeout ${submenu-timeout} --default ${submenu-default} selected && goto ${selected} || goto start
+
+:spinrite
+sanboot --no-describe --drive 0x00 ${sanboot-url}spinrite-${spinrite-version}/spinrite-${spinrite-version}.img || goto failed
+#sanboot --no-describe --drive 0x081 ${sanboot-url}spinrite-${spinrite-version}/spinrite-${spinrite-version}.iso
+#initrd spinrite/spinrite-${spinrite-version}.img
+#chain memdisk
+goto start
+
+:spinrite-msdos
+sanboot --no-describe --drive 0x00 ${sanboot-url}spinrite-${spinrite-version}/spinrite-${spinrite-version}-msdos.img || goto failed
+goto start
+
+:sysrcd
+echo Booting SystemRescueCD ${sysrcd-version} x86 for ${initiator-iqn}
+# Fixup needed after copying files from downloaded ISO to directory:
+#  cd path/to/sysrcd-iso-unpacked-files/isolinux && \
+#   perl -p -i -e 's{/bootdisk}{../bootdisk}' isolinux.cfg && \
+#   perl -p -i -e 's{scandelay=1}{scandelay=1 dodhcp netboot=nfs://nas.smidsrod.lan:/raid/boot/sysrcd-3.8.0-x86}g' isolinux.cfg && \
+#   perl -p -i -e 's{setkmap=us}{setkmap=us dodhcp netboot=nfs://nas.smidsrod.lan:/raid/boot/sysrcd-3.8.0-x86}g' isolinux.cfg && \
+#   perl -p -i -e 's{rescuecd_us}{rescuecd_no}; s{US}{NO}; s{setkmap=us}{setkmap=no}g; s{american}{norwegian};' isolinux.cfg && \
+#   cd -
+# PXELinux options, see http://syslinux.zytor.com/wiki/index.php/PXELINUX for details
+set 210:string ${boot-url}sysrcd-${sysrcd-version}-x86/isolinux/
+set 209:string isolinux.cfg
+set filename ${210:string}pxelinux.0
+chain ${filename} || goto failed
+goto start
+
+:macrium-winpe
+echo Booting Macrium Reflect ${macrium-version} (WinPE 4.0 ${arch}) for ${initiator-iqn}
+set base-url macrium-${macrium-version}/macrium-${macrium-version}-rescue-winpe-4.0-${arch}
+kernel wimboot
+initrd ${base-url}/bootmgr          bootmgr
+initrd ${base-url}/Boot/BCD         BCD
+initrd ${base-url}/Boot/boot.sdi    boot.sdi
+initrd ${base-url}/sources/boot.wim boot.wim
+boot || goto failed
+goto start
+
+:macrium-linux
+echo Booting Macrium Reflect ${macrium-version} (Linux ${arch}) for ${initiator-iqn}
+set base-url macrium-${macrium-version}/macrium-${macrium-version}-rescue-linux
+kernel ${base-url}/vmlinuz
+initrd ${base-url}/initramfs.xz
+imgargs vmlinuz vga=0x317
+boot || goto failed
+goto start
+
+:macrium-winpe-sanboot
+sanboot --no-describe ${sanboot-url}macrium-${macrium-version}/macrium-${macrium-version}-rescue-winpe-4.0-${arch}.iso || goto failed
+goto start
+
+:macrium-linux-sanboot
+sanboot --no-describe ${sanboot-url}macrium-${macrium-version}/macrium-${macrium-version}-rescue-linux.iso || goto failed
+goto start
+
+:firefly
+echo Booting Firefly ${firefly-version} for ${initiator-iqn}
+set base-url firefly-${firefly-version}/boot
+# http://alexeremin.blogspot.no/2013/05/firefly-failsafe-image-for-illumos.html
+# http://sourceforge.net/projects/fireflyfailsafe/files/
+# Download ISO, unpack ISO and copy files to boot-url
+# The ramdisk is compressed with gzip, which must be unpacked
+# to work with iPXE
+# mv firefly firefly.gz
+# gunzip firefly.gz
+kernel ${base-url}/platform/i86pc/kernel/amd64/unix
+module ${base-url}/firefly
+boot || goto failed
+goto start
+
+:freedos-direct
+echo Booting FreeDOS 1.1 KERNEL.SYS for ${initiator-iqn}
+set base-url freedos-1.1/fd11src/FREEDOS/SETUP/ODIN
+# TODO: Work-in-progress
+kernel ${base-url}/KERNEL.SYS
+boot || goto failed
+goto start
+
+###################### DIAGNOSTICS MENU #############################
+
+:menu-diag
+menu Diagnostic tools
+item hdt           HDT ${hdt-version}
+item memtest       Memtest86+ 4.20
+item memtest-ipxe  Memtest86+ 4.20 (iPXE)
+item breakin       Breakin 3.71
+item dban          Darik's Boot and Nuke 2.2.7
+item etdump        Bart's etdump 1.2
+item wdcdiag       Western Digital Diagnostics 5.04f
+item
+item --key 0x08 back Back to top menu...
+iseq ${menu-default} menu-diag && isset ${submenu-default} && goto menu-diag-timed ||
+choose selected && goto ${selected} || goto start
+:menu-diag-timed
+choose --timeout ${submenu-timeout} --default ${submenu-default} selected && goto ${selected} || goto start
+
+:hdt
+# http://hdt-project.org/
+sanboot --no-describe --drive 0x00 ${sanboot-url}hdt-${hdt-version}.img || goto failed
+goto start
+
+:memtest
+# TODO: Fix the URI parser to make the + sign work
+#chain memtest86+-4.20.elf.img - || goto failed
+chain memtest86plus-4.20.elf.img - || goto failed
+goto start
+
+:memtest-ipxe
+chain memtest.0 passes=1 && set memtest GOOD || set memtest BAD
+set memtest_errno:uint8 ${errno}
+iseq ${memtest} GOOD && goto memtest-info ||
+iseq ${memtest_errno} 0x1 && set memtest BAD || set memtest UNKNOWN
+:memtest-info
+menu Your memory seems to be ${memtest}
+item memtest-report   Report memtest result to web service
+item --key 0x08 menu-diag Back to diagnostics menu...
+choose --default menu-diag selected && goto ${selected} || goto start
+
+:memtest-report
+chain ${memtest-report-url}?result=${memtest}&mac=${mac}&uuid=${uuid}&hostname=${hostname} ||
+goto menu-diag
+
+:breakin
+# Stress-testing and diagnostics utility
+# http://www.advancedclustering.com/software/breakin.html
+# Set sshpasswd=yourpassword for remote access
+# Set startup= to 'cloner' or 'rescue' for more features
+# When startup=cloner, server= and image= can also be set
+# http://www.advancedclustering.com/software/cloner.html
+kernel breakin-3.71/kernel-3.71
+initrd breakin-3.71/initrd-3.71.cpio.lzma
+imgargs kernel-3.71 startup=breakin
+boot || goto failed
+goto start
+
+:dban
+kernel dban-2.2.7/DBAN.BZI
+imgargs DBAN.BZI nuke="dwipe --method gutmann --rounds 2 --verify last" silent vga=785
+boot || goto failed
+goto start
+
+:etdump
+# Booting it with memdisk makes it read/write, while sanboot forces read/only
+#sanboot --drive 0x00 ${sanboot-url}freedos-etdump-floppy.img
+initrd freedos-etdump-floppy.img
+chain memdisk || goto failed
+goto start
+
+:wdcdiag
+# Extracted the bootable floppy image from diag-5.04f.iso
+sanboot --drive 0x00 ${sanboot-url}western-digital/diag-5.04f.img || goto failed
+goto start
+
+############################ INSTALLER MENU #########################
+
+:menu-install
+menu Installers for ${initiator-iqn}
+item freedos-install      Install FreeDOS 1.1 to iSCSI
+item msdos-install        Install MS-DOS 6.22 to iSCSI
+item ubuntu-install       Install Ubuntu 12.04 ${archl} to iSCSI
+item windows7-install     Install Windows 7 to iSCSI
+item vmware-x64-install   Install VMware ESXi 5.0 (x64) to iSCSI
+item vmware-x86-install   Install VMware ESXi 3.5 (x86) to iSCSI
+item winpe                Hook Windows 7 iSCSI and boot WinPE
+item winpe-wimboot        Boot WinPE ${arch} using wimboot
+item ubuntu-installer-remote Install Ubuntu 12.04 ${archl} from public archive
+item ubuntu-install-local Install Ubuntu 12.04 ${archl} to local drive(s)
+item xenclient-install   Install XenClient 2.1 to local drive
+item windows7-hookonly   Hook Windows 7 iSCSI and boot local CD
+item
+item --key 0x08 back      Back to top menu...
+iseq ${menu-default} menu-install && isset ${submenu-default} && goto menu-install-timed ||
+choose selected && goto ${selected} || goto start
+:menu-install-timed
+choose --timeout ${submenu-timeout} --default ${submenu-default} selected && goto ${selected} || goto start
+
+:freedos-install
+echo Booting FreeDOS 1.1 installer to iSCSI for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.boot.freedos
+sanhook ${root-path} || goto failed
+sanboot --drive 0x81 ${sanboot-url}freedos-1.1/fd11src.iso || goto failed
+goto start
+
+:msdos-install
+echo Booting MS-DOS 6.22 installer to iSCSI for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.boot.msdos
+sanhook ${root-path} || goto failed
+sanboot --no-describe --drive 0x00 ${sanboot-url}msdos-6.22/disk1.img || goto failed
+goto start
+
+:ubuntu-install
+echo Starting Ubuntu 12.04 ${archl} installer for ${initiator-iqn}
+# Hook iSCSI drive
+set root-path ${base-iscsi}:${hostname}.boot.ubuntu
+#sanhook ${root-path} || goto failed
+# Start ubuntu-installer. Remember that the iSCSI target must be writable
+# by anyone, as debian-installer generates a randomized initiator-iqn in
+# /etc/iscsi/initiatorname.iscsi
+# The preseed script used takes care of rewriting it to the
+# hostname-based IQN used in this script.
+# This kernel param which open-iscsi README.Debian mentions doesn't work
+# inside debian-installer, unfortunately: iscsi_initiator=${initiator-iqn}
+# Hard workaround available here:
+# http://umfcloudpilot.eduserv.org.uk/entries/20299686-enable-pre-seed-or-kickstart-seeding-of-iscsi-intiator-iqn-in-ubuntu-server
+set base-url ${boot-url}ubuntu-12.04-server-${archl}
+kernel ${base-url}/install/netboot/ubuntu-installer/${archl}/linux
+initrd ${base-url}/install/netboot/ubuntu-installer/${archl}/initrd.gz
+imgargs linux auto=true fb=false url=${base-url}/./preseed.cfg DEBCONF_DEBUG=5 netcfg/get_hostname=${hostname} partman-iscsi/login/address=${iscsi-server} partman-iscsi/login/targets=${base-iqn}:${hostname}.boot.ubuntu partman-iscsi/login/username=${username} partman-iscsi/login/password=${password}
+boot || goto failed
+goto start
+
+:ubuntu-install-local
+echo Starting Ubuntu 12.04 ${archl} local installer for ${initiator-iqn}
+set base-url ${boot-url}ubuntu-12.04-server-${archl}
+kernel ${base-url}/install/netboot/ubuntu-installer/${archl}/linux
+initrd ${base-url}/install/netboot/ubuntu-installer/${archl}/initrd.gz
+imgargs linux auto=true fb=false url=${base-url}/./preseed.cfg
+boot || goto failed
+goto start
+
+:windows7-install
+echo Starting Windows 7 ${arch} installer for ${initiator-iqn}
+# Force gateway to be the iSCSI target server (kludge for stupid window behavior)
+set netX/gateway ${iscsi-server}
+# Hook iSCSI drive
+set root-path ${base-iscsi}:${hostname}.boot.windows7
+sanhook ${root-path} || goto failed
+# Start Windows 7 installer DVD
+#sanboot --no-describe --drive 0x81 ${sanboot-url}windows-7/ultimate-${arch}-en.iso || goto failed
+# Better solution, according to Oliver Rath on the mailing-list
+# Requires massive amounts of RAM, though
+#initrd windows-7/ultimate-${arch}-en.iso
+#chain memdisk iso raw || goto failed
+# This method uses wimboot
+set base-url windows-7/ultimate-${arch}-en
+kernel wimboot
+initrd ${base-url}/bootmgr                     bootmgr
+initrd ${base-url}/boot/bcd                    BCD
+initrd ${base-url}/boot/fonts/wgl4_boot.ttf    wgl4_boot.ttf
+initrd ${base-url}/boot/boot.sdi               boot.sdi
+initrd ${base-url}/sources/boot.wim            boot.wim
+boot || goto failed
+goto start
+
+:vmware-x64-install
+echo Booting VMware 64-bit installer for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.boot.vmware
+sanhook ${root-path} || goto failed
+initrd vmware/vmware-esxi-5.0-x64.iso
+chain memdisk iso || goto failed
+goto start
+
+:vmware-x86-install
+echo Booting VMware 32-bit installer for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.boot.vmware
+sanhook ${root-path} || goto failed
+initrd vmware/vmware-esxi-3.5-x86.iso
+chain memdisk iso || goto failed
+goto start
+
+:winpe
+echo Booting Windows PE ${arch} installer for ${initiator-iqn}
+echo (for installing Windows 7)
+# Force gateway to be the iSCSI target server (kludge for stupid window behavior)
+set netX/gateway ${iscsi-server}
+
+set root-path ${base-iscsi}:${hostname}.boot.windows7
+sanhook ${root-path} || goto failed
+
+# Remember to map the install volume with the following command:
+# net use y: \\nas\wds /user:NAS\robin
+# Use Y:\Operating Systems\Windows 7 x64\setup.exe to install
+
+# Boots WinPE via native MS TFTP support
+#chain tftp://${next-server}/%5CBoot%5CPXE%5Cpxeboot.n12
+# Better solution, according to Oliver Rath on the mailing-list
+# Requires decent amounts of RAM, though
+# Details on how to generate winpe-x64.iso from you Windows 7 install DVD
+# can be found here: http://technet.microsoft.com/en-us/library/cc722358%28v=ws.10%29.aspx
+initrd windows-7/winpe-${arch}.iso
+chain memdisk iso raw || goto failed
+goto start
+
+:winpe-wimboot
+echo Booting Windows PE ${arch} installer for ${initiator-iqn}
+#echo (for installing Windows 7)
+
+# Force gateway to be the iSCSI target server (kludge for stupid window behavior)
+set netX/gateway ${iscsi-server}
+
+set root-path ${base-iscsi}:${hostname}.boot.windows7
+sanhook ${root-path} || goto failed
+
+# Remember to map the install volume with the following command:
+# net use y: \\nas\wds /user:NAS\robin
+# Use Y:\Operating Systems\Windows 7 x64\setup.exe to install
+
+# Boots WinPE via iPXE wimboot binary
+# BCD is from http://www.fensystems.co.uk/~mcb30/BCD
+# wimboot prebuilt from http://www.fensystems.co.uk/~mcb30/wimboot
+#         source at http://git.ipxe.org/wimboot.git
+# bootmgr.exe from the same package that enables PXE booting for Windows
+#             (most likely WDS tools)
+set base-url winpe/${arch}
+kernel wimboot
+initrd ${base-url}/media/bootmgr                     bootmgr
+initrd ${base-url}/media/Boot/BCD                    BCD
+initrd ${base-url}/media/Boot/Fonts/segmono_boot.ttf segmono_boot.ttf
+initrd ${base-url}/media/Boot/Fonts/segoe_slboot.ttf segoe_slboot.ttf
+initrd ${base-url}/media/Boot/Fonts/wgl4_boot.ttf    wgl4_boot.ttf
+initrd ${base-url}/media/Boot/boot.sdi               boot.sdi
+initrd ${base-url}/media/sources/boot.wim            boot.wim
+boot || goto failed
+goto start
+
+:ubuntu-installer-remote
+echo Starting Ubuntu 12.04 ${archl} installer for ${initiator-iqn}
+set base-url http://no.archive.ubuntu.com/ubuntu/dists/precise/main/installer-${archl}/current/images/netboot/ubuntu-installer/${archl}
+kernel ${base-url}/linux
+initrd ${base-url}/initrd.gz
+#imgargs linux auto=true url=http://yourserver/some/path/preseed.cfg
+boot || goto failed
+goto start
+
+:xenclient-install
+echo Booting XenClient 2.1 installer for ${initiator-iqn}
+# XenClient doesn't seem to support installing to iSCSI volumes
+# It only supports installing using iBFT
+#set root-path ${base-iscsi}:${hostname}.boot.xenclient
+#sanhook ${root-path} || goto failed
+# The xenclient-2.1 folder is just the unpacked contents of the installer ISO
+# Make sure you modify the isolinux.cfg and point it at your answer file URL
+# You can find an example of the answer file in the "Setup and Usage Guide"
+set 210:string ${boot-url}xenclient-2.1/isolinux/
+set 209:string isolinux.cfg
+set filename ${210:string}pxelinux.0
+chain ${filename} || goto failed
+goto start
+
+:windows7-hookonly
+echo Hooking Windows 7 iSCSI volume for ${initiator-iqn}
+# Force gateway to be the iSCSI target server (kludge for stupid window behavior)
+set netX/gateway ${iscsi-server}
+# Hook iSCSI drive
+set root-path ${base-iscsi}:${hostname}.boot.windows7
+sanhook --drive 0x81 ${root-path} || goto failed
+echo Start Windows 7 installer DVD from local drive
+sanboot --no-describe --drive 0x80 ${sanboot-url}windows-7/ultimate-${arch}-en.iso || goto failed
+goto start
+
+###################### LIVE ENVIRONMENT MENU ########################
+
+:menu-live
+menu Live environments for ${initiator-iqn}
+item openelec-generic-live     Boot OpenELEC Generic ${openelec-version} ${archl}
+item ubuntu-live-1204          Boot Ubuntu LiveCD 12.04 ${archl}
+item slitaz-live               Boot SliTaz 4.0 LiveCD
+item smartos                   Boot SmartOS
+item smartos-pre-ept           Boot SmartOS (pre-ept)
+item kms-test                  Boot KMS test kernel
+item tinycore-live-core        Boot TinyCoreLinux ${tc-version} Core
+item tinycore-live-tinycore    Boot TinyCoreLinux ${tc-version} TinyCore
+item tinycore-live-coreplus    Boot TinyCoreLinux ${tc-version} CorePlus
+item coreos                    Boot CoreOS ${coreos-version}
+item
+item --key 0x08 back      Back to top menu...
+iseq ${menu-default} menu-live && isset ${submenu-default} && goto menu-live-timed ||
+choose selected && goto ${selected} || goto start
+:menu-live-timed
+choose --timeout ${submenu-timeout} --default ${submenu-default} selected && goto ${selected} || goto start
+
+:openelec-generic-live
+echo Booting OpenELEC Generic ${openelec-version} for ${initiator-iqn}
+set base-url openelec-generic-${archl}-${openelec-version}
+kernel ${base-url}/target/KERNEL
+initrd ${base-url}/target/SYSTEM
+# Config from: http://wiki.openelec.tv/index.php?title=Network_Boot_-_NFS
+# and http://wiki.openelec.tv/index.php?title=Installation#Network_Boot_.28PXE.29
+# NFS/NBD/iSCSI boot support only works on version >= 2 of OpenELEC
+# The NFS server must be specified as an IP, name resolution doesn't work :(
+imgargs KERNEL ip=dhcp boot=NFS=${nfs-server}:${nfs-root}${base-url}/target disk=NFS=${openelec-storage-dir} overlay
+boot || goto failed
+goto start
+
+:ubuntu-live-1204
+# See http://manpages.ubuntu.com/manpages/precise/man7/casper.7.html for casper cmdline details
+echo Booting Ubuntu Live 12.04 ${archl} for ${initiator-iqn}
+set base-url ubuntu-12.04-dvd-${archl}
+kernel ${base-url}/casper/vmlinuz
+initrd ${base-url}/casper/initrd.lz
+imgargs vmlinuz root=/dev/nfs boot=casper netboot=nfs nfsroot=${nfs-server}:${nfs-root}${base-url} locale=en_US.UTF-8 keyboard-configuration/layoutcode=no mirror/country=NO
+shell
+boot || goto failed
+goto start
+
+:slitaz-live
+echo Booting SliTaz 4.0 LiveCD for ${initiator-iqn}
+set base-url slitaz-4.0/
+kernel ${base-url}/boot/bzImage
+initrd ${base-url}/boot/rootfs4.gz
+initrd ${base-url}/boot/rootfs3.gz
+initrd ${base-url}/boot/rootfs2.gz
+initrd ${base-url}/boot/rootfs1.gz
+imgargs bzImage rw root=/dev/null vga=normal autologin lang=en_US kmap=no-latin1
+boot || goto failed
+goto start
+
+:smartos
+echo Booting SmartOS for ${initiator-iqn}
+# Hook iSCSI root volume (optional, not yet working)
+sanhook ${base-iscsi}:${hostname}.boot.smartos ||
+set base-url smartos
+# See http://nahamu.github.com/2011/08/17/smartos-pxe.html for details
+# See http://wiki.smartos.org/display/DOC/Getting+Started+with+SmartOS
+# http://wiki.smartos.org/display/DOC/PXE+Booting+SmartOS
+# http://wiki.smartos.org/display/DOC/SmartOS+Command+Line+Tips#SmartOSCommandLineTips-FiguringoutwheretoconfigureadditionalNetworkinterfacesorVLANs
+# http://wiki.smartos.org/display/DOC/extra+configuration+options
+# http://wiki.smartos.org/display/DOC/Managing+NICs
+kernel ${base-url}/platform/i86pc/kernel/amd64/unix
+initrd ${base-url}/platform/i86pc/amd64/boot_archive
+# This doesn't work, but I would very much like it to
+#initrd ${base-url}/config/${hostname}.txt /usbkey/config
+# smartos=true to run smartos "installer" (and disable noimport=true)
+# You can also run it manually, it's at /smartdc/bin/smartos_prompt_config.sh
+# keyboard-layout=norway doesn't work anymore (it used to)
+#imgargs unix -v -B console=text,standalone=true,noimport=true,keyboard-layout=norway,hostname=${hostname},root_shadow='${root-shadow}'
+imgargs unix -B console=text,standalone=true,hostname=${hostname},admin_nic=${mac},admin_ip=dhcp,admin_gateway=dhcp,external_nic=${mac},external_ip=dhcp,external_gateway=dhcp,dns_resolvers=${dns},dns_domain=${domain},ntp_hosts=pool.ntp.org,root_shadow='${root-shadow}'
+boot || goto failed
+goto start
+
+:smartos-pre-ept
+echo Starting SmartOS (pre-ept branch) for ${initiator-iqn}
+# pre-ept image downloaded from http://alpha.sysmgr.org/smartos-20120223-jmc2.iso
+# Posted by LeftWing on #illumos / FreeNode at 2012-04-11 09:09 UTC+2
+set base-url smartos/pre-ept
+kernel ${base-url}/platform/i86pc/kernel/amd64/unix
+module ${base-url}/platform/i86pc/amd64/boot_archive
+imgargs unix -v -B console=text,standalone=true,noimport=true,root_shadow='${root-shadow}'
+boot || goto failed
+goto start
+
+:kms-test
+echo Booting KMS-enabled Linux kernel for ${initiator-iqn}
+set base-url kms_test
+kernel ${base-url}/vmlinuz
+initrd ${base-url}/initrd ||
+imgargs vmlinuz rw root=/dev/nfs nfsroot=${nfs-server}:/raid/kms_test ip=dhcp ||
+boot || goto failed
+goto start
+
+# TinyCore is work-in-progress
+# Current problems is that tce=/mnt/nfs/cde works, but dir is not writable by tc user,
+# keymap is not loaded, and it seems like there is something I'm not understanding properly
+# about the TC boot process
+# More to read on http://distro.ibiblio.org/tinycorelinux/concepts.html
+# and http://wiki.tinycorelinux.net/wiki:netbooting
+:tinycore-live-core
+echo Booting TinyCoreLinux Live Core ${tc-version} for ${inititator-iqn}
+set base-url tinycore/Core-${tc-version}/
+kernel ${base-url}/boot/vmlinuz
+initrd ${base-url}/boot/core.gz
+imgargs vmlinuz loglevel=3
+boot || goto failed
+goto start
+
+:tinycore-live-tinycore
+echo Booting TinyCoreLinux Live TinyCore ${tc-version} for ${inititator-iqn}
+set base-url tinycore/TinyCore-${tc-version}
+kernel ${base-url}/boot/vmlinuz
+initrd ${base-url}/boot/core.gz
+imgargs vmlinuz nfsmount=${nfs-server}:${nfs-root}${base-url} host=${hostname} lang=us kmap=nb loglevel=3 syslog  tce=/mnt/nfs/cde
+boot || goto failed
+goto start
+
+:tinycore-live-coreplus
+echo Booting TinyCoreLinux Live CorePlus ${tc-version} for ${inititator-iqn}
+set base-url tinycore/CorePlus-${tc-version}
+kernel ${base-url}/boot/vmlinuz
+initrd ${base-url}/boot/core.gz
+imgargs vmlinuz nfsmount=${nfs-server}:${nfs-root}${base-url} host=${hostname} lang=us kmap=nb loglevel=3 syslog  tce=/mnt/nfs/cde showapps desktop=flwm_topside
+boot || goto failed
+goto start
+
+:coreos
+echo Booting CoresOS ${coreos-version} for ${inititator-iqn}
+#set base-url ${boot-url}/coreos/CorePlus-${tc-version}
+set base-url http://storage.core-os.net/coreos/${archl}-generic/${coreos-version}
+kernel ${base-url}/coreos_production_pxe.vmlinuz
+initrd ${base-url}/coreos_production_pxe_image.cpio.gz
+imgargs coreos_production_pxe.vmlinuz root=squashfs: state=tmpfs: sshkey="${coreos-sshkey}"
+boot || goto failed
+goto start
